@@ -42,6 +42,12 @@ sketchup-cli session stop
 
 Session state (cookies) is saved to `~/.sketchup-cli/session.json`. On subsequent runs the browser auto-logs-in — no manual login needed until cookies expire.
 
+## Notes
+
+- `sketchup-cli new` auto-dismisses the common `Save Changes` and `Purge unused items` dialogs before reporting success.
+- Drawing commands such as `draw wall`, `draw box`, `draw rectangle`, `draw circle`, and `push-pull` switch back to the Select tool when they finish, so later commands start from a clean tool state.
+- If SketchUp shows a different blocking dialog, the CLI reports it on stderr instead of blindly continuing.
+
 ## Command reference
 
 ### Session
