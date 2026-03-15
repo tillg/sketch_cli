@@ -142,6 +142,9 @@ export function checkDialog() {
     if (buttons.some(b => (b.innerText || '').trim() === 'No') && (document.body?.innerText || '').includes('Purge unused items')) {
       return 'Purge unused items';
     }
+    if ((document.body?.innerText || '').includes('SAVE TO') && buttons.some(b => String(b.className || '').includes('close-button'))) {
+      return 'SAVE TO';
+    }
     const active = [...document.querySelectorAll('div[aria-modal="true"], div[role="dialog"]')];
     if (active.length) return active[0].textContent.trim().substring(0, 120);
     const okBtn = buttons.find(b => b.textContent.trim() === 'Okay');
@@ -164,6 +167,14 @@ export function dismissBlockingDialogs() {
     if (noBtn && (document.body?.innerText || '').includes('Purge unused items')) {
       noBtn.click();
       return { dismissed: ['Purge unused items'] };
+    }
+
+    const saveToClose = buttons.find(b =>
+      String(b.className || '').includes('close-button') && (document.body?.innerText || '').includes('SAVE TO')
+    );
+    if (saveToClose) {
+      saveToClose.click();
+      return { dismissed: ['SAVE TO'] };
     }
 
     return { dismissed: [] };

@@ -11,6 +11,7 @@ export function register(program) {
     .description('Draw a rectangle at the given model-space origin with exact dimensions')
     .action(async (x, y, z, width, height) => {
       const client = await getClient();
+      await dismissBlockingDialogs(client, { attempts: 3, settleMs: 100 });
 
       // Activate rectangle tool
       await client.evaluate(nMW('ACTIVATE_RECTANGLE'));
@@ -46,6 +47,7 @@ export function register(program) {
     .option('--segments <n>', 'number of segments', '24')
     .action(async (x, y, z, radius, opts) => {
       const client = await getClient();
+      await dismissBlockingDialogs(client, { attempts: 3, settleMs: 100 });
 
       await client.evaluate(nMW('ACTIVATE_CIRCLE'));
 
@@ -82,6 +84,7 @@ export function register(program) {
       }
 
       const client = await getClient();
+      await dismissBlockingDialogs(client, { attempts: 3, settleMs: 100 });
       await client.evaluate(nMW('ACTIVATE_PENCIL'));
 
       const p1 = await client.evaluate(projectScript(x1 / 25.4, y1 / 25.4, z1 / 25.4));
@@ -106,6 +109,7 @@ export function register(program) {
     .description('Extrude the face at the given coordinate by distance')
     .action(async (x, y, z, distance) => {
       const client = await getClient();
+      await dismissBlockingDialogs(client, { attempts: 3, settleMs: 100 });
 
       await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
 
@@ -158,6 +162,7 @@ export function register(program) {
       const perpWY = -dx / w;
 
       const client = await getClient();
+      await dismissBlockingDialogs(client, { attempts: 3, settleMs: 100 });
 
       // Capture face count before rectangle
       const beforeFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
@@ -236,6 +241,7 @@ export function register(program) {
     .description('Draw a 3D box at origin with width, depth, height')
     .action(async (x, y, z, w, d, h) => {
       const client = await getClient();
+      await dismissBlockingDialogs(client, { attempts: 3, settleMs: 100 });
       const boxX = Number(x);
       const boxY = Number(y);
       const boxZ = Number(z);

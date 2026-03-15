@@ -114,10 +114,9 @@ export function register(program) {
     .description('Save copy under new name')
     .action(async (name) => {
       const client = await getClient();
-      await client.evaluate(nMW('SAVE_AS'));
-      // The Save As dialog will appear in the browser — user must interact
+      await automateSaveAs(client, name);
       client.close();
-      console.log('Save As dialog opened in browser window.');
+      console.log(`Saved as ${name}.`);
     });
 
   // plans
@@ -223,4 +222,112 @@ export function register(program) {
         console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
       }
     });
+}
+
+async function automateSaveAs(client, name) {
+  await client.evaluate(nMW('SAVE_AS'));
+
+  await waitFor(client, `(() => {
+    return [...document.querySelectorAll('*')].some(el =>
+      (el.innerText || '').trim() === 'Projects'
+    );
+  })()`, 15000, 250);
+
+  await waitFor(client, `(() => {
+    const hasNameInput = [...document.querySelectorAll('input')].some(el =>
+      el.placeholder === 'Enter a model name here'
+    );
+    const hasDestinationCard = [...document.querySelectorAll('*')].some(el => {
+      const text = el.innerText || '';
+      const rect = el.getBoundingClientRect();
+      return text.includes('SketchUp') && text.includes('Server:') && rect.width > 150 && rect.width < 400 && rect.height > 100;
+    });
+    return hasNameInput || hasDestinationCard;
+  })()`, 15000, 250);
+
+  let hasNameInput = await client.evaluate(`(() => {
+    return [...document.querySelectorAll('input')].some(el =>
+      el.placeholder === 'Enter a model name here'
+    );
+  })()`);
+
+  if (!hasNameInput) {
+    const sketchupCard = await client.evaluate(`(() => {
+      const card = [...document.querySelectorAll('*')].find(el =>
+        (() => {
+          const text = el.innerText || '';
+          const rect = el.getBoundingClientRect();
+          return text.includes('SketchUp') && text.includes('Server:') && rect.width > 150 && rect.width < 400 && rect.height > 100;
+        })()
+      );
+      if (!card) return null;
+      const rect = card.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`);
+
+    if (!sketchupCard) {
+      throw new Error('Save As destination card not found');
+    }
+
+    await client.mouseClick(sketchupCard.x, sketchupCard.y);
+    await waitFor(client, `(() => {
+      return [...document.querySelectorAll('input')].some(el =>
+        el.placeholder === 'Enter a model name here'
+      );
+    })()`, 15000, 250);
+    hasNameInput = true;
+  }
+
+  if (!hasNameInput) {
+    throw new Error('Save As name input not found');
+  }
+
+  await client.evaluate(`(() => {
+    const input = [...document.querySelectorAll('input')].find(el =>
+      el.placeholder === 'Enter a model name here'
+    );
+    if (!input) throw new Error('Save As name input not found');
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setValue.call(input, ${JSON.stringify(name)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+
+  const saveHere = await client.evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')].find(b =>
+      (b.innerText || '').trim() === 'Save here'
+    );
+    if (!button) return null;
+    const rect = button.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`);
+
+  if (!saveHere) {
+    throw new Error('Save As submit button not found');
+  }
+
+  await client.mouseClick(saveHere.x, saveHere.y);
+
+  await waitFor(client, `(() => {
+    const inputPresent = [...document.querySelectorAll('input')].some(el =>
+      el.placeholder === 'Enter a model name here'
+    );
+    const saveButtonPresent = [...document.querySelectorAll('button')].some(b =>
+      (b.innerText || '').trim() === 'Save here'
+    );
+    return !inputPresent && !saveButtonPresent;
+  })()`, 30000, 500);
+
+  await waitFor(client, `(() => {
+    return (document.body.innerText || '').includes(${JSON.stringify(name)});
+  })()`, 30000, 500).catch(() => {});
+}
+
+async function waitFor(client, script, timeoutMs, intervalMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await client.evaluate(script)) return true;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error('Timed out waiting for SketchUp UI state');
 }
