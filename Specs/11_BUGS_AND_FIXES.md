@@ -313,7 +313,7 @@ Implemented in CLI code:
 - dedicated visibility errors instead of generic downstream push-pull noise
 - inset face targeting for `draw wall` and `draw box`
 - direct planned-bounds camera fit for ground-plane rectangle/circle/box/wall creation via `Module.setViewMatrix` + `Module.setOrthographicViewExtents`
-- deterministic extrusion camera prep via `VIEW_ISO` + `ACTIVATE_ZOOM_EXTENTS`
+- deterministic ground-plane extrusion camera prep via the existing planned-bounds top-view fit, which keeps the new face visible during sequential wall/box draws
 - previous camera restoration after draw/extrusion commands via `Module.getCameraRestorationData` + `Module.setCameraFromRestorationData`
 
 Still open:

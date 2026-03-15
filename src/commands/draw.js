@@ -14,6 +14,7 @@ import { getBlockingDialog, dismissBlockingDialogs } from '../dialogs.js';
 const CANVAS_TARGET_MARGIN = 16;
 const GROUND_PLANE_EPSILON = 1e-6;
 const GROUND_PLANE_FIT_SCALE = 1.1;
+const GROUND_PLANE_EXTRUSION_PAD_MM = 250;
 const CAMERA_STABLE_POLL_MS = 50;
 const CAMERA_STABLE_READS = 3;
 const CAMERA_STABLE_TIMEOUT_MS = 2000;
@@ -61,7 +62,16 @@ export function register(program) {
           rectY + heightSign * Math.min(Math.abs(rectHeight), 100),
           rectZ,
         );
-        const rectNudge = combineUnitDirections(pos, [xRef, yRef], 80, { x: 80, y: -10 });
+        const rectNudge = getRectangleNudge(
+          pos,
+          xRef,
+          yRef,
+          Math.abs(rectWidth),
+          Math.abs(rectHeight),
+          { x: 80, y: -10 },
+        );
+        await client.mouseMove(pos.x, pos.y);
+        await sleep(50);
         await client.mouseClick(pos.x, pos.y);
 
         await moveMouseBy(client, pos.x, pos.y, rectNudge.x, rectNudge.y);
@@ -178,7 +188,7 @@ export function register(program) {
       await withManagedDrawClient(async (client) => {
         await dismissBlockingDialogs(client, { attempts: 3, settleMs: 100 });
         if (isGroundPlane(faceZ)) {
-          await prepareExtrusionCamera(client);
+          await prepareGroundPlaneExtrusionCamera(client, getPointBounds(faceX, faceY));
         }
 
         await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
@@ -285,12 +295,12 @@ export function register(program) {
           throw new Error('Rectangle step produced no new face.');
         }
 
-        await prepareExtrusionCamera(client);
-        await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
         const insetAlong = Math.min(Math.max(w * 0.1, 10), w / 2);
         const insetAcross = Math.min(Math.max(Math.abs(t) * 0.5, 5), Math.abs(t));
         const faceX = x1 + (dx / w) * insetAlong + perpWX * thicknessSign * insetAcross;
         const faceY = y1 + (dy / w) * insetAlong + perpWY * thicknessSign * insetAcross;
+        await prepareGroundPlaneExtrusionCamera(client, getPointBounds(faceX, faceY));
+        await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
         const facePos = await projectVisiblePoint(client, {
           label: 'Wall push-pull target',
           pointLabel: 'face point',
@@ -306,6 +316,8 @@ export function register(program) {
         );
         const pushPullNudge = nudgeToward(facePos, zRefScreen, 80, { x: 0, y: -80 });
 
+        await client.mouseMove(facePos.x, facePos.y);
+        await sleep(50);
         await client.mouseClick(facePos.x, facePos.y);
         await moveMouseBy(client, facePos.x, facePos.y, pushPullNudge.x, pushPullNudge.y);
         await client.evaluate(typeVCB(String(height)));
@@ -356,46 +368,88 @@ export function register(program) {
         }
 
         const beforeFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
-
-        await client.evaluate(nMW('ACTIVATE_RECTANGLE'));
-        const startScreen = await projectVisiblePoint(client, {
-          label: 'Box start point',
-          pointLabel: 'start point',
-          x: boxX,
-          y: boxY,
-          z: boxZ,
-        });
-        const xRefScreen = await projectPoint(
-          client,
-          boxX + widthSign * Math.min(Math.abs(boxW), 100),
-          boxY,
-          boxZ,
-        );
-        const yRefScreen = await projectPoint(
-          client,
-          boxX,
-          boxY + depthSign * Math.min(Math.abs(boxD), 100),
-          boxZ,
-        );
-        const rectNudge = combineUnitDirections(startScreen, [xRefScreen, yRefScreen], 80, { x: 80, y: -10 });
-
-        await client.mouseClick(startScreen.x, startScreen.y);
-        await moveMouseBy(client, startScreen.x, startScreen.y, rectNudge.x, rectNudge.y);
-        await client.evaluate(typeVCB(`${w},${d}`));
-        await client.pressKey('Enter');
-
-        await sleep(200);
-        const afterFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
-        if (afterFaces <= beforeFaces) {
-          throw new Error('Rectangle step produced no new face.');
-        }
-
-        await prepareExtrusionCamera(client);
-        await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
+        const beforeEdges = await client.evaluate(`(() => Module.getModelInfo().stats.num_edges)()`);
         const insetX = Math.min(Math.max(Math.abs(boxW) * 0.1, 10), Math.abs(boxW) / 2);
         const insetY = Math.min(Math.max(Math.abs(boxD) * 0.1, 10), Math.abs(boxD) / 2);
         const faceX = boxX + widthSign * insetX;
         const faceY = boxY + depthSign * insetY;
+
+        const rectangleStarts = getAxisAlignedStartCandidates(boxX, boxY, boxW, boxD);
+        let afterFaces = beforeFaces;
+
+        for (const rectangleStart of rectangleStarts) {
+          await client.evaluate(nMW('ACTIVATE_RECTANGLE'));
+          const startScreen = await projectVisiblePoint(client, {
+            label: 'Box start point',
+            pointLabel: 'start point',
+            x: rectangleStart.x,
+            y: rectangleStart.y,
+            z: boxZ,
+          });
+          const xRefScreen = await projectPoint(
+            client,
+            rectangleStart.x + Math.sign(rectangleStart.width || 1) * Math.min(Math.abs(rectangleStart.width), 100),
+            rectangleStart.y,
+            boxZ,
+          );
+          const yRefScreen = await projectPoint(
+            client,
+            rectangleStart.x,
+            rectangleStart.y + Math.sign(rectangleStart.height || 1) * Math.min(Math.abs(rectangleStart.height), 100),
+            boxZ,
+          );
+          const rectNudge = getRectangleNudge(
+            startScreen,
+            xRefScreen,
+            yRefScreen,
+            Math.abs(rectangleStart.width),
+            Math.abs(rectangleStart.height),
+            { x: 80, y: -10 },
+          );
+
+          await client.mouseMove(startScreen.x, startScreen.y);
+          await sleep(50);
+          await client.mouseClick(startScreen.x, startScreen.y);
+          await moveMouseBy(client, startScreen.x, startScreen.y, rectNudge.x, rectNudge.y);
+          await client.evaluate(typeVCB(`${rectangleStart.width},${rectangleStart.height}`));
+          await client.pressKey('Enter');
+
+          await sleep(200);
+          afterFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
+          if (afterFaces > beforeFaces) {
+            const needsGroundFaceCheck = isGroundPlane(boxZ)
+              && rectangleStarts.length > 1
+              && (Math.abs(boxX) <= GROUND_PLANE_EPSILON || Math.abs(boxY) <= GROUND_PLANE_EPSILON);
+            if (!needsGroundFaceCheck || await hasHorizontalFaceAtPoint(client, faceX, faceY, boxZ)) {
+              break;
+            }
+
+            await client.evaluate(nMW('UNDO'));
+            await sleep(200);
+            afterFaces = beforeFaces;
+            continue;
+          }
+
+          const afterEdges = await client.evaluate(`(() => Module.getModelInfo().stats.num_edges)()`);
+          if (afterEdges > beforeEdges) {
+            await client.evaluate(nMW('UNDO'));
+            await sleep(200);
+          }
+        }
+
+        if (afterFaces <= beforeFaces) {
+          throw new Error('Rectangle step produced no new face.');
+        }
+
+        if (isGroundPlane(boxZ)) {
+          await prepareGroundPlaneExtrusionCamera(
+            client,
+            getPointBounds(faceX, faceY),
+          );
+        } else {
+          await prepareExtrusionCamera(client);
+        }
+        await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
         const facePos = await projectVisiblePoint(client, {
           label: 'Box push-pull target',
           pointLabel: 'face point',
@@ -411,6 +465,8 @@ export function register(program) {
         );
         const pushPullNudge = nudgeToward(facePos, zRefScreen, 80, { x: 0, y: -80 });
 
+        await client.mouseMove(facePos.x, facePos.y);
+        await sleep(50);
         await client.mouseClick(facePos.x, facePos.y);
         await moveMouseBy(client, facePos.x, facePos.y, pushPullNudge.x, pushPullNudge.y);
         await client.evaluate(typeVCB(String(h)));
@@ -495,12 +551,50 @@ function combineUnitDirections(from, refs, pixels, fallback) {
   };
 }
 
+function getRectangleNudge(from, xRef, yRef, width, height, fallback) {
+  const longSide = Math.max(width, height);
+  const shortSide = Math.min(width, height);
+
+  if (!longSide || shortSide / longSide >= 0.5) {
+    return combineUnitDirections(from, [xRef, yRef], 80, fallback);
+  }
+
+  const primaryRef = width >= height ? xRef : yRef;
+  const secondaryRef = width >= height ? yRef : xRef;
+  return combineWeightedDirections(from, [
+    { ref: primaryRef, pixels: 80 },
+    { ref: secondaryRef, pixels: 20 },
+  ], fallback);
+}
+
+function combineWeightedDirections(from, refs, fallback) {
+  let sumX = 0;
+  let sumY = 0;
+  for (const { ref, pixels } of refs) {
+    const dx = ref.x - from.x;
+    const dy = ref.y - from.y;
+    const len = Math.sqrt(dx ** 2 + dy ** 2);
+    if (!len) continue;
+    sumX += (dx / len) * pixels;
+    sumY += (dy / len) * pixels;
+  }
+  if (!sumX && !sumY) return fallback;
+  return {
+    x: Math.round(sumX),
+    y: Math.round(sumY),
+  };
+}
+
 async function fitGroundPlaneBounds(client, bounds, margin = CANVAS_TARGET_MARGIN) {
   await client.evaluate(nMW('PARALLEL_PROJECTION'));
   await client.evaluate(nMW('VIEW_TOP'));
   await waitForCameraStable(client);
   await client.evaluate(buildSetGroundPlaneBoundsScript(bounds, margin));
   await waitForCameraStable(client);
+}
+
+async function prepareGroundPlaneExtrusionCamera(client, bounds) {
+  await fitGroundPlaneBounds(client, bounds);
 }
 
 async function prepareExtrusionCamera(client) {
@@ -627,6 +721,116 @@ function getAxisAlignedBounds(x1, y1, x2, y2) {
     maxX: Math.max(x1, x2),
     minY: Math.min(y1, y2),
     maxY: Math.max(y1, y2),
+  };
+}
+
+function getAxisAlignedStartCandidates(x, y, width, height) {
+  const primary = { x, y, width, height };
+  const candidates = [primary];
+
+  if (Math.abs(x) <= GROUND_PLANE_EPSILON && Math.abs(width) > GROUND_PLANE_EPSILON) {
+    candidates.push({ x: x + width, y, width: -width, height });
+  }
+  if (Math.abs(y) <= GROUND_PLANE_EPSILON && Math.abs(height) > GROUND_PLANE_EPSILON) {
+    candidates.push({ x, y: y + height, width, height: -height });
+  }
+  if (
+    Math.abs(x) <= GROUND_PLANE_EPSILON
+    && Math.abs(y) <= GROUND_PLANE_EPSILON
+    && Math.abs(width) > GROUND_PLANE_EPSILON
+    && Math.abs(height) > GROUND_PLANE_EPSILON
+  ) {
+    candidates.push({ x: x + width, y: y + height, width: -width, height: -height });
+  }
+
+  return candidates
+    .filter((candidate, index, list) => list.findIndex((entry) => (
+      entry.x === candidate.x
+      && entry.y === candidate.y
+      && entry.width === candidate.width
+      && entry.height === candidate.height
+    )) === index)
+    .sort((a, b) => {
+      if (a === primary) return -1;
+      if (b === primary) return 1;
+      const distA = Math.hypot(a.x - x, a.y - y);
+      const distB = Math.hypot(b.x - x, b.y - y);
+      return distA - distB;
+    });
+}
+
+async function hasHorizontalFaceAtPoint(client, x, y, z) {
+  return client.evaluate(buildHasHorizontalFaceAtPointScript(x, y, z));
+}
+
+function buildHasHorizontalFaceAtPointScript(x, y, z) {
+  return `(async () => {
+    const target = { x: ${JSON.stringify(x)}, y: ${JSON.stringify(y)}, z: ${JSON.stringify(z)} };
+    const epsilon = 1e-6;
+    const origCreate = URL.createObjectURL.bind(URL);
+    let stlBuffer = null;
+    URL.createObjectURL = function(blob) {
+      const url = origCreate(blob);
+      blob.arrayBuffer().then(buf => { stlBuffer = buf; });
+      return url;
+    };
+
+    const mod = ${INJECT_MOD};
+    mod.nMW(mod.YFS.EXPORT_STL);
+
+    for (let i = 0; i < 160; i++) {
+      if (stlBuffer !== null) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    URL.createObjectURL = origCreate;
+    if (!stlBuffer) throw new Error('STL export timed out while checking face placement.');
+
+    function sign(px, py, ax, ay, bx, by) {
+      return (px - bx) * (ay - by) - (ax - bx) * (py - by);
+    }
+
+    function pointInTriangle(px, py, v1, v2, v3) {
+      const d1 = sign(px, py, v1[0], v1[1], v2[0], v2[1]);
+      const d2 = sign(px, py, v2[0], v2[1], v3[0], v3[1]);
+      const d3 = sign(px, py, v3[0], v3[1], v1[0], v1[1]);
+      const hasNeg = d1 < -epsilon || d2 < -epsilon || d3 < -epsilon;
+      const hasPos = d1 > epsilon || d2 > epsilon || d3 > epsilon;
+      return !(hasNeg && hasPos);
+    }
+
+    const view = new DataView(stlBuffer);
+    const triangleCount = view.getUint32(80, true);
+    let offset = 84;
+
+    for (let i = 0; i < triangleCount; i++) {
+      const v1 = [view.getFloat32(offset + 12, true), view.getFloat32(offset + 16, true), view.getFloat32(offset + 20, true)];
+      const v2 = [view.getFloat32(offset + 24, true), view.getFloat32(offset + 28, true), view.getFloat32(offset + 32, true)];
+      const v3 = [view.getFloat32(offset + 36, true), view.getFloat32(offset + 40, true), view.getFloat32(offset + 44, true)];
+      offset += 50;
+
+      if (
+        Math.abs(v1[2] - target.z) > epsilon
+        || Math.abs(v2[2] - target.z) > epsilon
+        || Math.abs(v3[2] - target.z) > epsilon
+      ) {
+        continue;
+      }
+
+      if (pointInTriangle(target.x, target.y, v1, v2, v3)) {
+        return true;
+      }
+    }
+
+    return false;
+  })()`;
+}
+
+function getPointBounds(x, y, pad = GROUND_PLANE_EXTRUSION_PAD_MM) {
+  return {
+    minX: x - pad,
+    maxX: x + pad,
+    minY: y - pad,
+    maxY: y + pad,
   };
 }
 

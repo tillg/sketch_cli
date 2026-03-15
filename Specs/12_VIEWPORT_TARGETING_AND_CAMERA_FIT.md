@@ -183,6 +183,9 @@ Short-term requirement:
 - Standardize on a deterministic drawing camera where possible:
   - `projection parallel`
   - `view top` for ground-plane rectangle/circle/box/wall creation
+- Keep ground-plane push-pull on that planned top-view fit instead of switching to
+  `VIEW_ISO` + `ACTIVATE_ZOOM_EXTENTS`, which can let existing 3D walls occlude
+  the newly created face during sequential draws
 - Use that camera before rectangle creation in high-level commands
 - Re-check target visibility after camera change
 

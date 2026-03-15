@@ -47,7 +47,7 @@ Session state (cookies) is saved to `~/.sketchup-cli/session.json`. On subsequen
 - `sketchup-cli new` auto-dismisses the common `Save Changes` and `Purge unused items` dialogs before reporting success.
 - Drawing commands such as `draw wall`, `draw box`, `draw rectangle`, `draw circle`, and `push-pull` switch back to the Select tool when they finish, so later commands start from a clean tool state.
 - Ground-plane `draw rectangle`, `draw circle`, `draw wall`, and `draw box` now use a planned-bounds camera fit in parallel top view before projecting coordinates.
-- Ground-plane extrusion steps (`push-pull`, plus the extrusion stage inside `draw wall`/`draw box`) switch to isometric view and zoom extents before clicking the face target.
+- Ground-plane extrusion steps (`push-pull`, plus the extrusion stage inside `draw wall`/`draw box`) stay in a planned top-view camera fit, which avoids occlusion from existing walls during sequential draws.
 - Drawing and extrusion commands restore the previous camera after they finish, so scripted operations do not leave SketchUp in top or isometric view.
 - Projection-driven drawing still uses trusted viewport clicks; if a projected click target falls outside the visible canvas, the command fails early with a visibility-specific error instead of clicking blindly.
 - If SketchUp shows a different blocking dialog, the CLI reports it on stderr instead of blindly continuing.
