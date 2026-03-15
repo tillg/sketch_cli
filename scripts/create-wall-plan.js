@@ -16,12 +16,18 @@ if (!planName) {
 
 try {
   await runCli(['new']);
+  await runCli(['stats', '--json']);
   await runCli(['draw', 'wall', '0,0', '5000,0', '2500', '250']);
   await runCli(['save-as', planName]);
   console.log(`Created plan "${planName}" with one wall.`);
 } catch (error) {
   console.error(error.message);
   process.exit(1);
+} finally {
+  try {
+    await runCli(['session', 'stop']);
+  } catch {
+  }
 }
 
 function runCli(args) {

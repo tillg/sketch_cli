@@ -147,7 +147,47 @@ Example: sketchup-cli draw rectangle 0 0 0 3000 4000
 
 ---
 
-### 7. Command dispatched but had no effect
+### 7. Projected target is outside the visible viewport
+
+**When:** A command computes a screen position from model-space coordinates, but the
+projected point lies outside the canvas bounds or too close to the edge for a safe click.
+
+**Typical cases:**
+- `draw rectangle` first click at a large coordinate far from the current camera
+- `push-pull` click at the center of a large face
+- `draw box` / `draw wall` composed operations on geometry larger than the current view
+
+**Detection:** Before every trusted `page.mouse.click(x, y)` driven by projection,
+compare the point to `canvas.getBoundingClientRect()` with a margin.
+
+```js
+const rect = canvas.getBoundingClientRect();
+const margin = 16;
+const inside =
+  x >= rect.left + margin &&
+  x <= rect.right - margin &&
+  y >= rect.top + margin &&
+  y <= rect.bottom - margin;
+
+if (!inside) {
+  throw {
+    code: 1,
+    message: 'target_offscreen',
+    detail: { x, y },
+  };
+}
+```
+
+**Stderr:**
+```
+Error: Push-pull target is outside the visible viewport.
+The face point at model coordinates (7450, 6450, 0) is not safely clickable.
+```
+**Exit code:** 1
+
+---
+
+### 8. Command dispatched but had no effect
 
 **When:** `mod.nMW(commandId)` was called but nothing visibly changed (e.g. EDIT_DELETE
 with nothing selected).
@@ -163,7 +203,7 @@ Warning: Command may not have taken effect (nothing selected?).
 
 ---
 
-### 8. Session startup timeout
+### 9. Session startup timeout
 
 **When:** `session start` was run but `SUCypress` didn't become available within 60 seconds
 (login not completed).

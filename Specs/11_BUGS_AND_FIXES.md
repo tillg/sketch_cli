@@ -241,6 +241,88 @@ a dangling tool.
 
 ---
 
+## Bug 5 — coordinate-based drawing fails when the projected target is off-screen
+
+**Severity: High** — breaks large-coordinate architectural workflows even when the
+projection math itself is correct.
+
+**Affected commands:** `draw rectangle`, `draw circle`, `draw line`, `push-pull`,
+`draw wall`, `draw box`
+
+### Symptom
+
+Large-coordinate creation fails with generic geometry errors such as:
+
+```text
+Error: Push-pull produced no new geometry.
+Error: Push-pull step produced no new geometry.
+```
+
+Typical reproductions from the customer report:
+
+```bash
+sketchup-cli draw box 0 12485 0 14900 415 2400
+sketchup-cli draw box 0 0 0 14900 12900 100
+sketchup-cli draw rectangle 0 0 0 14900 12900
+sketchup-cli push-pull 7450 6450 0 100
+```
+
+### Root Cause
+
+These commands project model-space coordinates to screen-space and click them with
+Playwright. The code assumes that a valid projection is also a valid click target.
+That is false when the current camera does not frame the target region.
+
+There are two distinct problems:
+
+1. **No viewport bounds check** before clicking a projected point
+2. **Face-center targeting** in `draw wall` and `draw box`, which makes large faces
+   fail even when the start corner is visible
+
+### Required Fix
+
+**Part A — validate all projected click targets.**
+
+Before every projected click, require the point to be safely inside the canvas.
+If not, abort with a dedicated visibility error instead of a geometry error.
+
+**Part B — use inset face targeting for composed extrusions.**
+
+For `draw box` and `draw wall`, click an interior point near the first successful
+corner instead of the face center.
+
+**Part C — add camera preparation.**
+
+High-level ground-plane drawing commands should standardize on a predictable camera
+(`PARALLEL_PROJECTION` + `VIEW_TOP`) and re-check visibility before the click.
+
+**Part D — pursue planned-bounds camera fit and/or programmatic geometry.**
+
+Long-term reliability requires either:
+
+- a camera helper that can frame future geometry bounds, or
+- direct geometry creation APIs that bypass viewport clicks entirely
+
+Detailed requirements are in `Specs/12_VIEWPORT_TARGETING_AND_CAMERA_FIT.md`.
+
+### Implementation Status
+
+Implemented in CLI code:
+
+- shared canvas-bounds validation before every projection-driven click
+- dedicated visibility errors instead of generic downstream push-pull noise
+- inset face targeting for `draw wall` and `draw box`
+- direct planned-bounds camera fit for ground-plane rectangle/circle/box/wall creation via `Module.setViewMatrix` + `Module.setOrthographicViewExtents`
+- deterministic extrusion camera prep via `VIEW_ISO` + `ACTIVATE_ZOOM_EXTENTS`
+- previous camera restoration after draw/extrusion commands via `Module.getCameraRestorationData` + `Module.setCameraFromRestorationData`
+
+Still open:
+
+- broader camera-fit support beyond the current ground-plane/top-view strategy
+- any future non-viewport geometry backend
+
+---
+
 ## Summary Table
 
 | #   | Component                                                         | Severity | Status       |
@@ -249,6 +331,7 @@ a dangling tool.
 | 2   | `new` command + `checkSession` — home-page detection wrong        | High     | ✅ Implemented |
 | 3   | `draw wall` — rectangle orientation not controlled                | Medium   | ✅ Implemented |
 | 4   | `draw wall` / `draw box` — no success check between steps         | Medium   | ✅ Implemented |
+| 5   | Coordinate-based drawing — no viewport validation / face-center targeting | High | ✅ Implemented (planned-bounds fit still open) |
 
 ---
 

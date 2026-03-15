@@ -25,6 +25,13 @@ item off.
   - Cross-session ID stability: IDs appear stable within a session; not tested
     across sessions.
 
+- [x] **A4: Planned-bounds camera fit for coordinate drawing** — ✅ RESOLVED for
+      the current ground-plane workflow. `Module.setViewMatrix(...)` and
+      `Module.setOrthographicViewExtents(...)` can frame planned XY bounds before
+      the first click. This is now used by the CLI for ground-plane rectangle,
+      circle, wall, and box creation. Broader non-ground-plane camera strategies
+      remain follow-up work in `Specs/12_VIEWPORT_TARGETING_AND_CAMERA_FIT.md`.
+
 ---
 
 ## B — Unproven Commands (need live browser verification)
@@ -64,6 +71,11 @@ spec.
       trusted click at face screen coordinate → mousemove → type distance →
       `browser_press_key('Enter')`. Face targeting via estimated screen
       coordinates works for clearly visible faces.
+- [ ] **B15: Large-coordinate draw regression** — Prove the large-coordinate cases
+      from the customer log on a blank/Test model after viewport-targeting fixes:
+      `draw box 0 12485 0 14900 415 2400`, `draw box 0 0 0 14900 12900 100`, and
+      `draw rectangle 0 0 0 14900 12900` + `push-pull 7450 6450 0 100`. Document in
+      `Specs/12_VIEWPORT_TARGETING_AND_CAMERA_FIT.md` and update `03_CLI_COMMANDS.md`.
 
 ### Edit / Transform
 

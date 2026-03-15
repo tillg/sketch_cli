@@ -171,14 +171,13 @@ export function register(program) {
       const session = await client.checkSession();
 
       if (!session.ok && session.reason === 'no_model') {
-        // On the home page — click the "Create new" button
-        await client.evaluate(`(() => {
-          const btn = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Create new'));
-          if (btn) btn.click();
-        })()`);
+        await createNewFromHome(client);
       } else {
-        // Already inside a model — use the YFS command
-        await client.evaluate(nMW('NEW_MODEL'));
+        try {
+          await client.evaluate(nMW('NEW_MODEL'));
+        } catch {
+          await createNewFromHome(client, { navigateHome: true });
+        }
       }
 
       // Wait for model to become ready, handling dialogs and page transitions
@@ -330,4 +329,31 @@ async function waitFor(client, script, timeoutMs, intervalMs) {
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   throw new Error('Timed out waiting for SketchUp UI state');
+}
+
+async function createNewFromHome(client, { navigateHome = false } = {}) {
+  if (navigateHome) {
+    await client.navigate('https://app.sketchup.com/app');
+  }
+
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    try {
+      await dismissBlockingDialogs(client, { attempts: 2, settleMs: 200 });
+      const clicked = await client.evaluate(`(() => {
+        const btn = [...document.querySelectorAll('button')].find((button) =>
+          (button.textContent || '').includes('Create new')
+        );
+        if (!btn) return false;
+        btn.click();
+        return true;
+      })()`);
+      if (clicked) return;
+    } catch {
+      // Page may still be navigating.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error('Timed out waiting for the SketchUp home page Create new button.');
 }

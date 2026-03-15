@@ -75,6 +75,11 @@ vcbKey('Digit5', 53, 53); vcbKey('Digit0', 48, 48); vcbKey('Digit0', 48, 48);
 
 To click at a specific model coordinate (x, y, z), the 3D point must be projected to screen pixels using the current camera.
 
+> Important: correct projection is **not sufficient**. The projected point must also
+> be visible inside the current canvas. Large-coordinate drawing failures can occur
+> even when `projectScript(...)` is mathematically correct, simply because the target
+> lies outside the viewport. See `Specs/12_VIEWPORT_TARGETING_AND_CAMERA_FIT.md`.
+
 **Required inputs:**
 - `mod.rYl()` — 4×4 view/projection matrix
 - `mod.jzI()` — field of view (degrees)
@@ -197,6 +202,11 @@ mod.nMW(mod.YFS.ACTIVATE_PUSH_PULL);
 // 5. browser_press_key('Enter')
 // NOTE: Face targeting uses estimated screen coordinates — see Face Targeting below
 ```
+
+Known limitation: this works reliably only when the target face point is already
+visible inside the viewport. For large faces, clicking the geometric center is not
+safe; high-level commands such as `draw box` and `draw wall` should use an inset
+interior point near the already-visible starting corner instead.
 
 ### `move <dx,dy,dz>` ✅ Proven
 

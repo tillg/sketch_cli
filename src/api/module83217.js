@@ -26,6 +26,59 @@ export function getCameraState() {
   })()`;
 }
 
+export function getCameraSnapshot() {
+  return `(() => {
+    const viewMatrix = Module.getViewMatrix();
+    const frustum = Module.getViewFrustum();
+    return {
+      perspective: Module.getPerspective(),
+      viewMatrix: {
+        m00: viewMatrix.m00,
+        m01: viewMatrix.m01,
+        m02: viewMatrix.m02,
+        m03: viewMatrix.m03,
+        m10: viewMatrix.m10,
+        m11: viewMatrix.m11,
+        m12: viewMatrix.m12,
+        m13: viewMatrix.m13,
+        m20: viewMatrix.m20,
+        m21: viewMatrix.m21,
+        m22: viewMatrix.m22,
+        m23: viewMatrix.m23,
+        m30: viewMatrix.m30,
+        m31: viewMatrix.m31,
+        m32: viewMatrix.m32,
+        m33: viewMatrix.m33,
+      },
+      frustum: {
+        left: frustum.left,
+        right: frustum.right,
+        bottom: frustum.bottom,
+        top: frustum.top,
+        near: frustum.near,
+        far: frustum.far,
+      },
+    };
+  })()`;
+}
+
+export function getCameraRestorationData() {
+  return `(() => {
+    return typeof Module.getCameraRestorationData === 'function'
+      ? Module.getCameraRestorationData()
+      : null;
+  })()`;
+}
+
+export function setCameraFromRestorationData(data) {
+  return `(() => {
+    if (typeof Module.setCameraFromRestorationData !== 'function') {
+      throw new Error('SketchUp camera restoration API is unavailable.');
+    }
+    Module.setCameraFromRestorationData(${JSON.stringify(data)});
+  })()`;
+}
+
 export function getExtents() {
   return `(() => {
     const mod = ${INJECT_MOD};
@@ -44,6 +97,22 @@ export function getCanvasCenter() {
       height: rect.height,
       left: rect.left,
       top: rect.top
+    };
+  })()`;
+}
+
+export function getCanvasRect() {
+  return `(() => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
     };
   })()`;
 }

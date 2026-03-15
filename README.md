@@ -46,7 +46,12 @@ Session state (cookies) is saved to `~/.sketchup-cli/session.json`. On subsequen
 
 - `sketchup-cli new` auto-dismisses the common `Save Changes` and `Purge unused items` dialogs before reporting success.
 - Drawing commands such as `draw wall`, `draw box`, `draw rectangle`, `draw circle`, and `push-pull` switch back to the Select tool when they finish, so later commands start from a clean tool state.
+- Ground-plane `draw rectangle`, `draw circle`, `draw wall`, and `draw box` now use a planned-bounds camera fit in parallel top view before projecting coordinates.
+- Ground-plane extrusion steps (`push-pull`, plus the extrusion stage inside `draw wall`/`draw box`) switch to isometric view and zoom extents before clicking the face target.
+- Drawing and extrusion commands restore the previous camera after they finish, so scripted operations do not leave SketchUp in top or isometric view.
+- Projection-driven drawing still uses trusted viewport clicks; if a projected click target falls outside the visible canvas, the command fails early with a visibility-specific error instead of clicking blindly.
 - If SketchUp shows a different blocking dialog, the CLI reports it on stderr instead of blindly continuing.
+- Run `scripts/spec12-smoke.sh` to replay the large-coordinate Spec 12 acceptance cases end-to-end; use `scripts/spec12-smoke.sh --keep-session` to leave the browser open afterward.
 
 ## Command reference
 
@@ -104,6 +109,8 @@ Session state (cookies) is saved to `~/.sketchup-cli/session.json`. On subsequen
 | `push-pull <x> <y> <z> <distance>` | Extrude face at coordinate |
 
 Coordinates are in model units (mm for metric models).
+
+The current drawing backend remains viewport-dependent, but ground-plane rectangle/circle/box/wall creation now fits planned bounds before clicking. `draw line` still requires visible projected endpoints, and extrusion commands still depend on a visible face target after camera prep.
 
 ### Selection & editing
 

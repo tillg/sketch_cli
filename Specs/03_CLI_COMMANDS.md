@@ -43,12 +43,12 @@ All commands assume a model is open in `app.sketchup.com` (via the running Playw
 
 | Command | Description | API Backing | Status |
 |---------|-------------|-------------|--------|
-| `sketchup-cli draw rectangle <x> <y> <z> <width> <height>` | Draw a rectangle face at given origin with exact dimensions | `ACTIVATE_RECTANGLE` + mouse click + `Module.onKeyDown` VCB input | ✅ Proven |
-| `sketchup-cli draw circle <x> <y> <z> <radius> [--segments n]` | Draw a circle face | `ACTIVATE_CIRCLE` + mouse click + VCB input | ✅ Proven |
-| `sketchup-cli draw line <x1,y1,z1> <x2,y2,z2>` | Draw a single line/edge | `ACTIVATE_PENCIL` + two canvas clicks (start + end point) via `page.mouse.click` | ✅ Proven |
-| `sketchup-cli push-pull <x> <y> <z> <distance>` | Extrude the face at given coordinate by distance | `ACTIVATE_PUSH_PULL` + canvas click at face coordinate + VCB distance | ✅ Proven |
-| `sketchup-cli draw wall <x1,y1> <x2,y2> <height> <thickness>` | High-level: draw a 3D wall (rectangle + push-pull) | Composed: `draw rectangle` + `push-pull` | 🔬 Theoretical |
-| `sketchup-cli draw box <x> <y> <z> <w> <d> <h>` | High-level: draw a 3D box | Composed: `draw rectangle` + `push-pull` | 🔬 Theoretical |
+| `sketchup-cli draw rectangle <x> <y> <z> <width> <height>` | Draw a rectangle face at given origin with exact dimensions | `ACTIVATE_RECTANGLE` + mouse click + `Module.onKeyDown` VCB input | ✅ Proven — ground-plane use fits planned bounds before clicking |
+| `sketchup-cli draw circle <x> <y> <z> <radius> [--segments n]` | Draw a circle face | `ACTIVATE_CIRCLE` + mouse click + VCB input | ✅ Proven — ground-plane use fits planned bounds before clicking |
+| `sketchup-cli draw line <x1,y1,z1> <x2,y2,z2>` | Draw a single line/edge | `ACTIVATE_PENCIL` + two canvas clicks (start + end point) via `page.mouse.click` | ✅ Proven — ground-plane use fits planned bounds before clicking; both endpoints must still be visible |
+| `sketchup-cli push-pull <x> <y> <z> <distance>` | Extrude the face at given coordinate by distance | `ACTIVATE_PUSH_PULL` + canvas click at face coordinate + VCB distance | ✅ Proven — ground-plane use switches to ISO + zoom extents before clicking |
+| `sketchup-cli draw wall <x1,y1> <x2,y2> <height> <thickness>` | High-level: draw a 3D wall (rectangle + push-pull) | Composed: `draw rectangle` + `push-pull` | ✅ Implemented — uses planned-bounds top fit, inset face targeting, and ISO extrusion prep |
+| `sketchup-cli draw box <x> <y> <z> <w> <d> <h>` | High-level: draw a 3D box | Composed: `draw rectangle` + `push-pull` | ✅ Implemented — uses planned-bounds top fit, inset face targeting, and ISO extrusion prep |
 | `sketchup-cli follow-me <profile-ref> <path-ref>` | Extrude a profile along a path | `ACTIVATE_FOLLOW_ME` | 🔬 Theoretical |
 | `sketchup-cli intersect faces` | Intersect selected faces with model | `mod.nMW(mod.YFS.INTERSECT_FACES_WITH_MODEL)` | ✅ Proven |
 | `sketchup-cli weld-edges` | Weld selected edges into a curve | `mod.nMW(mod.YFS.WELD_EDGES)` | ✅ Proven |
