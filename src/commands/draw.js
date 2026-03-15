@@ -1,6 +1,6 @@
 import { getClient } from '../session/client.js';
-import { nMW, typeVCB, dispatchMousemove, projectScript, INJECT_MOD } from '../api/module83217.js';
-import { checkDialog } from '../api/adapters.js';
+import { nMW, typeVCB, projectScript, INJECT_MOD } from '../api/module83217.js';
+import { getBlockingDialog, dismissBlockingDialogs } from '../dialogs.js';
 
 export function register(program) {
   const draw = program.command('draw').description('Drawing commands');
@@ -15,12 +15,12 @@ export function register(program) {
       // Activate rectangle tool
       await client.evaluate(nMW('ACTIVATE_RECTANGLE'));
 
-      // Project origin to screen, click there
-      const pos = await client.evaluate(projectScript(Number(x), Number(y), Number(z)));
+      // Project origin to screen (inches), click there
+      const pos = await client.evaluate(projectScript(Number(x) / 25.4, Number(y) / 25.4, Number(z) / 25.4));
       await client.mouseClick(pos.x, pos.y);
 
       // Mandatory mousemove to establish drawing direction
-      await client.evaluate(dispatchMousemove(80, 80));
+      await moveMouseBy(client, pos.x, pos.y, 80, 80);
 
       // Type dimensions: "width,height"
       await client.evaluate(typeVCB(`${width},${height}`));
@@ -28,12 +28,13 @@ export function register(program) {
       // Commit
       await client.pressKey('Enter');
 
-      // Check for blocking dialog
-      const dialog = await client.evaluate(checkDialog());
+      const dialog = await getBlockingDialog(client);
       if (dialog) {
         process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
         process.exit(1);
       }
+
+      await cleanupAfterDraw(client);
 
       client.close();
     });
@@ -48,19 +49,21 @@ export function register(program) {
 
       await client.evaluate(nMW('ACTIVATE_CIRCLE'));
 
-      // Project center to screen, click there
-      const pos = await client.evaluate(projectScript(Number(x), Number(y), Number(z)));
+      // Project center to screen (inches), click there
+      const pos = await client.evaluate(projectScript(Number(x) / 25.4, Number(y) / 25.4, Number(z) / 25.4));
       await client.mouseClick(pos.x, pos.y);
 
-      await client.evaluate(dispatchMousemove(80, 0));
+      await moveMouseBy(client, pos.x, pos.y, 80, 0);
       await client.evaluate(typeVCB(String(radius)));
       await client.pressKey('Enter');
 
-      const dialog = await client.evaluate(checkDialog());
+      const dialog = await getBlockingDialog(client);
       if (dialog) {
         process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
         process.exit(1);
       }
+
+      await cleanupAfterDraw(client);
 
       client.close();
     });
@@ -81,12 +84,18 @@ export function register(program) {
       const client = await getClient();
       await client.evaluate(nMW('ACTIVATE_PENCIL'));
 
-      const p1 = await client.evaluate(projectScript(x1, y1, z1));
-      const p2 = await client.evaluate(projectScript(x2, y2, z2));
+      const p1 = await client.evaluate(projectScript(x1 / 25.4, y1 / 25.4, z1 / 25.4));
+      const p2 = await client.evaluate(projectScript(x2 / 25.4, y2 / 25.4, z2 / 25.4));
 
       await client.mouseClick(p1.x, p1.y);
       await client.mouseClick(p2.x, p2.y);
-      await client.pressKey('Escape');
+      const dialog = await getBlockingDialog(client);
+      if (dialog) {
+        process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
+        process.exit(1);
+      }
+
+      await cleanupAfterDraw(client);
 
       client.close();
     });
@@ -100,18 +109,29 @@ export function register(program) {
 
       await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
 
-      const pos = await client.evaluate(projectScript(Number(x), Number(y), Number(z)));
+      const pos = await client.evaluate(projectScript(Number(x) / 25.4, Number(y) / 25.4, Number(z) / 25.4));
       await client.mouseClick(pos.x, pos.y);
 
-      await client.evaluate(dispatchMousemove(0, -80));
+      const beforeFaces = await getFaceCount(client);
+      await moveMouseBy(client, pos.x, pos.y, 0, -80);
       await client.evaluate(typeVCB(String(distance)));
       await client.pressKey('Enter');
+      await sleep(200);
 
-      const dialog = await client.evaluate(checkDialog());
+      const afterFaces = await getFaceCount(client);
+      if (afterFaces <= beforeFaces) {
+        process.stderr.write('Error: Push-pull produced no new geometry.\n');
+        client.close();
+        process.exit(1);
+      }
+
+      const dialog = await getBlockingDialog(client);
       if (dialog) {
         process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
         process.exit(1);
       }
+
+      await cleanupAfterDraw(client);
 
       client.close();
     });
@@ -130,24 +150,82 @@ export function register(program) {
       }
 
       const w = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+      const dx = x2 - x1, dy = y2 - y1;
+      const t = Number(thickness);
+
+      // Perpendicular direction (clockwise in XY plane) for thickness extension
+      const perpWX = dy / w;
+      const perpWY = -dx / w;
 
       const client = await getClient();
 
+      // Capture face count before rectangle
+      const beforeFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
+
       // Draw rectangle at floor level
       await client.evaluate(nMW('ACTIVATE_RECTANGLE'));
-      const pos = await client.evaluate(projectScript(x1, y1, 0));
-      await client.mouseClick(pos.x, pos.y);
-      await client.evaluate(dispatchMousemove(80, 80));
+
+      // Project start, end, and perpendicular reference to screen
+      const startScreen = await client.evaluate(projectScript(x1 / 25.4, y1 / 25.4, 0));
+      const endScreen = await client.evaluate(projectScript(x2 / 25.4, y2 / 25.4, 0));
+      const perpRefScreen = await client.evaluate(projectScript(
+        (x1 + perpWX * t) / 25.4, (y1 + perpWY * t) / 25.4, 0
+      ));
+
+      // Wall direction in screen space
+      const dxScreen = endScreen.x - startScreen.x;
+      const dyScreen = endScreen.y - startScreen.y;
+      const dirLen = Math.sqrt(dxScreen ** 2 + dyScreen ** 2);
+      const nudgeX = dirLen > 0 ? Math.round((dxScreen / dirLen) * 80) : 80;
+      const nudgeY = dirLen > 0 ? Math.round((dyScreen / dirLen) * 80) : 0;
+
+      // Perpendicular direction in screen space (for thickness extension)
+      const perpSX = perpRefScreen.x - startScreen.x;
+      const perpSY = perpRefScreen.y - startScreen.y;
+      const perpSLen = Math.sqrt(perpSX ** 2 + perpSY ** 2);
+      const nudgePerpX = perpSLen > 0 ? Math.round((perpSX / perpSLen) * 20) : 0;
+      const nudgePerpY = perpSLen > 0 ? Math.round((perpSY / perpSLen) * 20) : 0;
+
+      await client.mouseClick(startScreen.x, startScreen.y);
+      // Include perpendicular component so Rectangle tool extends thickness correctly
+      await moveMouseBy(client, startScreen.x, startScreen.y, nudgeX + nudgePerpX, nudgeY + nudgePerpY);
       await client.evaluate(typeVCB(`${Math.round(w)},${thickness}`));
       await client.pressKey('Enter');
 
-      // Push-pull the face up by height
+      // Verify rectangle created a face
+      await sleep(200);
+      const afterFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
+      if (afterFaces <= beforeFaces) {
+        process.stderr.write('Error: Rectangle step produced no new face.\n');
+        client.close();
+        process.exit(1);
+      }
+
+      // Push-pull: click face center (midpoint + half-thickness perpendicular offset)
       await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
-      const facePos = await client.evaluate(projectScript(x1 + (x2-x1)/2, y1 + (y2-y1)/2, 0));
+      const faceCX = (x1 + x2) / 2 + perpWX * t / 2;
+      const faceCY = (y1 + y2) / 2 + perpWY * t / 2;
+      const facePos = await client.evaluate(projectScript(faceCX / 25.4, faceCY / 25.4, 0));
       await client.mouseClick(facePos.x, facePos.y);
-      await client.evaluate(dispatchMousemove(0, -80));
+      await moveMouseBy(client, facePos.x, facePos.y, 0, -80);
       await client.evaluate(typeVCB(String(height)));
       await client.pressKey('Enter');
+      await sleep(200);
+
+      const afterPushPullFaces = await getFaceCount(client);
+      if (afterPushPullFaces <= afterFaces) {
+        process.stderr.write('Error: Push-pull step produced no new geometry.\n');
+        client.close();
+        process.exit(1);
+      }
+
+      const dialog = await getBlockingDialog(client);
+      if (dialog) {
+        process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
+        process.exit(1);
+      }
+
+      await cleanupAfterDraw(client);
 
       client.close();
     });
@@ -158,25 +236,131 @@ export function register(program) {
     .description('Draw a 3D box at origin with width, depth, height')
     .action(async (x, y, z, w, d, h) => {
       const client = await getClient();
+      const boxX = Number(x);
+      const boxY = Number(y);
+      const boxZ = Number(z);
+      const boxW = Number(w);
+      const boxD = Number(d);
+      const boxH = Number(h);
+      const widthSign = boxW >= 0 ? 1 : -1;
+      const depthSign = boxD >= 0 ? 1 : -1;
+      const heightSign = boxH >= 0 ? 1 : -1;
+
+      // Capture face count before rectangle
+      const beforeFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
 
       // Draw rectangle base
       await client.evaluate(nMW('ACTIVATE_RECTANGLE'));
-      const pos = await client.evaluate(projectScript(Number(x), Number(y), Number(z)));
-      await client.mouseClick(pos.x, pos.y);
-      await client.evaluate(dispatchMousemove(80, 80));
+      const startScreen = await client.evaluate(projectScript(boxX / 25.4, boxY / 25.4, boxZ / 25.4));
+      const xRefScreen = await client.evaluate(projectScript(
+        (boxX + widthSign * Math.min(Math.abs(boxW), 100)) / 25.4,
+        boxY / 25.4,
+        boxZ / 25.4
+      ));
+      const yRefScreen = await client.evaluate(projectScript(
+        boxX / 25.4,
+        (boxY + depthSign * Math.min(Math.abs(boxD), 100)) / 25.4,
+        boxZ / 25.4
+      ));
+      const rectNudge = combineUnitDirections(startScreen, [xRefScreen, yRefScreen], 80, { x: 80, y: -10 });
+
+      await client.mouseClick(startScreen.x, startScreen.y);
+      await moveMouseBy(client, startScreen.x, startScreen.y, rectNudge.x, rectNudge.y);
       await client.evaluate(typeVCB(`${w},${d}`));
       await client.pressKey('Enter');
 
-      // Push-pull up
+      // Verify rectangle created a face
+      await sleep(200);
+      const afterFaces = await client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
+      if (afterFaces <= beforeFaces) {
+        process.stderr.write('Error: Rectangle step produced no new face.\n');
+        client.close();
+        process.exit(1);
+      }
+
+      // Push-pull up - click near origin of the face (not center, which may be off-screen)
       await client.evaluate(nMW('ACTIVATE_PUSH_PULL'));
       const facePos = await client.evaluate(projectScript(
-        Number(x) + Number(w)/2, Number(y) + Number(d)/2, Number(z)
+        (boxX + boxW / 2) / 25.4,
+        (boxY + boxD / 2) / 25.4,
+        boxZ / 25.4
       ));
+      const zRefScreen = await client.evaluate(projectScript(
+        (boxX + boxW / 2) / 25.4,
+        (boxY + boxD / 2) / 25.4,
+        (boxZ + heightSign * Math.min(Math.abs(boxH), 100)) / 25.4
+      ));
+      const pushPullNudge = nudgeToward(facePos, zRefScreen, 80, { x: 0, y: -80 });
       await client.mouseClick(facePos.x, facePos.y);
-      await client.evaluate(dispatchMousemove(0, -80));
+      await moveMouseBy(client, facePos.x, facePos.y, pushPullNudge.x, pushPullNudge.y);
       await client.evaluate(typeVCB(String(h)));
       await client.pressKey('Enter');
+      await sleep(200);
+
+      const afterPushPullFaces = await getFaceCount(client);
+      if (afterPushPullFaces <= afterFaces) {
+        process.stderr.write('Error: Push-pull step produced no new geometry.\n');
+        client.close();
+        process.exit(1);
+      }
+
+      const dialog = await getBlockingDialog(client);
+      if (dialog) {
+        process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
+        process.exit(1);
+      }
+
+      await cleanupAfterDraw(client);
 
       client.close();
     });
+}
+
+async function moveMouseBy(client, x, y, dx, dy) {
+  await sleep(50);
+  await client.mouseMove(x + dx, y + dy);
+}
+
+async function getFaceCount(client) {
+  return client.evaluate(`(() => Module.getModelInfo().stats.num_faces)()`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function cleanupAfterDraw(client) {
+  await dismissBlockingDialogs(client, { attempts: 2, settleMs: 100 });
+  await client.evaluate(nMW('ACTIVATE_SELECTION'));
+  await dismissBlockingDialogs(client, { attempts: 2, settleMs: 100 });
+}
+
+function nudgeToward(from, to, pixels, fallback) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx ** 2 + dy ** 2);
+  if (!len) return fallback;
+  return {
+    x: Math.round((dx / len) * pixels),
+    y: Math.round((dy / len) * pixels),
+  };
+}
+
+function combineUnitDirections(from, refs, pixels, fallback) {
+  let sumX = 0;
+  let sumY = 0;
+  for (const ref of refs) {
+    const dx = ref.x - from.x;
+    const dy = ref.y - from.y;
+    const len = Math.sqrt(dx ** 2 + dy ** 2);
+    if (!len) continue;
+    sumX += dx / len;
+    sumY += dy / len;
+  }
+  const len = Math.sqrt(sumX ** 2 + sumY ** 2);
+  if (!len) return fallback;
+  return {
+    x: Math.round((sumX / len) * pixels),
+    y: Math.round((sumY / len) * pixels),
+  };
 }

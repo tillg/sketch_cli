@@ -2,6 +2,7 @@ import { getClient } from '../session/client.js';
 import { nMW } from '../api/module83217.js';
 import { captureBlob } from '../api/stl.js';
 import { isSaveNeeded, getPlans } from '../api/adapters.js';
+import { dismissBlockingDialogs, getBlockingDialog } from '../dialogs.js';
 import { printJSON } from '../output.js';
 import fs from 'fs';
 import path from 'path';
@@ -167,9 +168,41 @@ export function register(program) {
     .command('new')
     .description('Open a new blank model')
     .action(async () => {
-      const client = await getClient();
-      await client.evaluate(nMW('NEW_MODEL'));
+      const client = await getClient({ requireModel: false });
+      const session = await client.checkSession();
+
+      if (!session.ok && session.reason === 'no_model') {
+        // On the home page — click the "Create new" button
+        await client.evaluate(`(() => {
+          const btn = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Create new'));
+          if (btn) btn.click();
+        })()`);
+      } else {
+        // Already inside a model — use the YFS command
+        await client.evaluate(nMW('NEW_MODEL'));
+      }
+
+      // Wait for model to become ready, handling dialogs and page transitions
+      const deadline = Date.now() + 60000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          await dismissBlockingDialogs(client, { attempts: 2, settleMs: 200 });
+          const status = await client.checkSession();
+          if (status.ok) {
+            const dialog = await getBlockingDialog(client);
+            if (!dialog) {
+              console.log('New model created.');
+              client.close();
+              return;
+            }
+          }
+        } catch {
+          // Page may be navigating — context temporarily lost; keep polling
+        }
+      }
       client.close();
+      console.error('Warning: Timed out waiting for new model to load.');
     });
 
   // run-script

@@ -137,11 +137,36 @@ export function getPlans() {
 
 export function checkDialog() {
   return `(() => {
+    const buttons = [...document.querySelectorAll('button')];
+    if (buttons.some(b => (b.innerText || '').trim() === "Don't Save")) return 'Save Changes';
+    if (buttons.some(b => (b.innerText || '').trim() === 'No') && (document.body?.innerText || '').includes('Purge unused items')) {
+      return 'Purge unused items';
+    }
     const active = [...document.querySelectorAll('div[aria-modal="true"], div[role="dialog"]')];
     if (active.length) return active[0].textContent.trim().substring(0, 120);
-    const okBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Okay');
+    const okBtn = buttons.find(b => b.textContent.trim() === 'Okay');
     if (okBtn) return okBtn.closest('div')?.textContent.trim().substring(0, 120) ?? 'unknown dialog';
     return null;
+  })()`;
+}
+
+export function dismissBlockingDialogs() {
+  return `(() => {
+    const buttons = [...document.querySelectorAll('button')];
+
+    const dontSave = buttons.find(b => (b.innerText || '').trim() === "Don't Save");
+    if (dontSave) {
+      dontSave.click();
+      return { dismissed: ['Save Changes'] };
+    }
+
+    const noBtn = buttons.find(b => (b.innerText || '').trim() === 'No');
+    if (noBtn && (document.body?.innerText || '').includes('Purge unused items')) {
+      noBtn.click();
+      return { dismissed: ['Purge unused items'] };
+    }
+
+    return { dismissed: [] };
   })()`;
 }
 

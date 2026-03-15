@@ -163,8 +163,22 @@ async function dispatch(page, context, browser, msg, socket) {
           break;
         }
         try {
-          const hasSU = await page.evaluate(() => typeof window.SUCypress !== 'undefined');
-          result = hasSU ? { ok: true } : { ok: false, reason: 'no_model' };
+          const isEditorReady = await page.evaluate(() => {
+            try {
+              if (typeof window.SUCypress === 'undefined') return false;
+              // Reuse cached module if available (INJECT_MOD sets window.__skuMod)
+              if (window.__skuMod) return typeof window.__skuMod.nMW === 'function';
+              // Cold check — only runs until first command warms the cache
+              const chunk = window.webpackChunksketchup_web_frontend;
+              let wp; chunk.push([['__cli_chk'], {}, r => { wp = r; }]);
+              if (typeof wp !== 'function') return false;
+              const mod = wp(83217);
+              if (!mod || typeof mod.nMW !== 'function') return false;
+              window.__skuMod = mod;
+              return true;
+            } catch { return false; }
+          });
+          result = isEditorReady ? { ok: true } : { ok: false, reason: 'no_model' };
         } catch (err) {
           result = { ok: false, reason: 'page_crashed', error: err.message };
         }

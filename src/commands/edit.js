@@ -2,7 +2,7 @@ import { getClient } from '../session/client.js';
 import { nMW, typeVCB, dispatchMousemove, INJECT_MOD, getCanvasCenter } from '../api/module83217.js';
 import { selectByTag } from '../api/adapters.js';
 import { selectById, clearSelection } from '../api/outliner.js';
-import { checkDialog } from '../api/adapters.js';
+import { getBlockingDialog } from '../dialogs.js';
 
 export function register(program) {
   // --- Selection ---
@@ -93,7 +93,7 @@ export function register(program) {
       await client.evaluate(typeVCB(String(distance)));
       await client.pressKey('Enter');
 
-      const dialog = await client.evaluate(checkDialog());
+      const dialog = await getBlockingDialog(client);
       if (dialog) {
         process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
         process.exit(1);
@@ -123,7 +123,7 @@ export function register(program) {
       await client.evaluate(typeVCB(String(angle)));
       await client.pressKey('Enter');
 
-      const dialog = await client.evaluate(checkDialog());
+      const dialog = await getBlockingDialog(client);
       if (dialog) {
         process.stderr.write(`Error: SketchUp showed a blocking dialog: "${dialog}"\n`);
         process.exit(1);
@@ -150,7 +150,7 @@ export function register(program) {
       await client.evaluate(typeVCB(String(factors)));
       await client.pressKey('Enter');
 
-      const dialog = await client.evaluate(checkDialog());
+      const dialog = await getBlockingDialog(client);
       if (dialog) {
         process.stderr.write(
           `Error: SketchUp rejected scale input: "${dialog}"\n` +
